@@ -10,8 +10,12 @@ import matplotlib.pyplot as plt
 import gpxpy
 import gpxpy.gpx
 import time
+import images2gif
+from PIL import Image
+import io
 from matplotlib import animation
 from matplotlib import gridspec
+from scipy.signal import *
 
 def dataWrapper(path):
     """ Gets data from gpx file .
@@ -82,8 +86,8 @@ def timeStyle(time_interval):
     return time.strftime('%H:%M', time.gmtime(time_interval))
 
 # Loads GPS and Google Earth data
-dataUS = dataWrapper("JuanBarbosa.gpx")
-data = np.genfromtxt("Route.txt", delimiter=",")
+dataUS = dataWrapper("GPS-data/Loctome-Sopo.gpx")
+data = np.genfromtxt("GPS-data/GoogleEarth-Sopo.txt", delimiter=",")
 
 # Sets the column information
 LATITUDE_US = 0
@@ -112,6 +116,10 @@ data = data[1:]
 
 # Takes off zero speed points
 dataUS = ceroSpeed(dataUS)
+i = 0
+while i < 6:
+    dataUS[:, SPEED_US] = savgol_filter(dataUS[:, SPEED_US], 51, 9-i)#medfilt(dataUS[:, SPEED_US], 31) #wiener(dataUS[:, SPEED_US])#, noise=100.0)
+    i += 1
 
 distance = dataUS[:, DISTANCE_US]
 altitude = dataUS[:, ALTITUDE_US]
@@ -179,9 +187,7 @@ def dataPlot(path = None):
             print("Invalid path or extention")
     else:
         plt.show()
-        
-
-j = 0    
+          
 def animationMethod(path = None):
 
     """
@@ -189,14 +195,24 @@ def animationMethod(path = None):
     """
     # First set up the figure, the axis, and the plot element we want to animate
     fig = plt.figure(figsize=(4*columns, 2*rows))
+    lines = []
+    points = []
+    texts = []    
+    
     gs = gridspec.GridSpec(rows, columns)
     ax1 = fig.add_subplot(gs[:1,0])
     ax1.set_xlim(min(distance), max(distance))
     ax1.set_ylim(min(altitude), max(altitude))
     ax1.grid()
     ax1.set_ylabel("Altitude (m)")
-    line_US, = ax1.plot([], [])
-    point_US, = ax1.plot([], [], "o", color = "red", ms=1)
+    ax1.text(40, 2950, "Altitude (m)")
+    
+    line, = ax1.plot([], [])
+    point, = ax1.plot([], [], "o", color = "red")
+    text = ax1.text(60, 2900, "")
+    lines.append(line)
+    points.append(point)
+    texts.append(text)
     
     ax2 = fig.add_subplot(gs[1:,0])
     ax2.set_xlim(min(distance), max(distance))
@@ -204,8 +220,14 @@ def animationMethod(path = None):
     ax2.grid()
     ax2.set_ylabel("Speed (km/h)")
     ax2.set_xlabel("Distance (km)")
-    speed_US, = ax2.plot([], [])
-    point_speed, = ax2.plot([], [], "o", color = "red")
+    ax2.text(40, 45, "Speed (km/h)")
+    
+    line, = ax2.plot([], [])
+    point, = ax2.plot([], [], "o", color = "red")
+    text = ax2.text(60, 40, "")
+    lines.append(line)
+    points.append(point)    
+    texts.append(text)
     
     ax3 = fig.add_subplot(gs[:,1:])
     ax3.set_ylim(max(dataUS[:, LONGITUDE_US]), min(dataUS[:, LONGITUDE_US]))
@@ -216,60 +238,60 @@ def animationMethod(path = None):
     ax3.plot(dataUS[:, LATITUDE_US], dataUS[:, LONGITUDE_US], color="black", alpha = 0.3)
     for (lat, long, name) in zip(locations_lat, locations_long, locations_name):
         ax3.text(lat, long, name)
-    position_US, = ax3.plot([], [])
-    us, = ax3.plot([], [], "o", color="red")
-    time_display = ax3.text(4.90,-74.07, "")
+    ax3.text(4.85, -74.07, "Elapsed time")
+    line, = ax3.plot([], [])
+    point, = ax3.plot([], [], "o", color="red")
+    text = ax3.text(4.90,-74.07, "")
+    lines.append(line)
+    points.append(point)
+    texts.append(text)
     plt.tight_layout()
-    j = 0
+    
+    lines_data = [[distance, altitude], [distance, dataUS[:, SPEED_US]], [dataUS[:, LATITUDE_US], dataUS[:, LONGITUDE_US]]]
+    timeStyled = [timeStyle(temp) for temp in time_accumulative]
+    speedText = ["%.1f"%temp for temp in dataUS[:, SPEED_US]] 
+    texts_data = [altitude, speedText, timeStyled]
+    figList = []
+    repeat = True
+    if path != None:
+        repeat = False
     
     # initialization function: plot the background of each frame
     def init():
-        line_US.set_data([], [])
-        point_US.set_data([], [])
-        speed_US.set_data([], [])
-        point_speed.set_data([], [])
-        position_US.set_data([], [])
-        us.set_data(dataUS[0, LATITUDE_US], dataUS[0: LONGITUDE_US])
-        time_display.set_text("")
-        return line_US, point_US, speed_US, point_speed, position_US, us, time_display
+        for line in lines:
+            line.set_data([], [])
+        for point in points:
+            point.set_data([], [])
+        for text in texts:
+            text.set_text("")
+        return tuple(lines) + tuple(points) + tuple(texts)
     
     # animation function.  This is called sequentially
     def animate(i):
-        global j      
-#        global max_altitude, min_altitude, max_distance, max_speed
-        line_US.set_data(distance[:i], altitude[:i])
-        coeff = (altitude[i]-min_altitude)/(max_altitude-min_altitude)
-        if coeff >= 1/3:
-            point_US.set_markersize(6*coeff)
-        point_US.set_data(distance[i], altitude[i])
-        y = dataUS[:, SPEED_US]
-        speed_US.set_data(distance[:i], y[:i])
-        point_speed.set_data(distance[i], y[i])
-        coeff = y[i]/max_speed
-        if coeff >= 1/3:
-            point_speed.set_markersize(6*coeff)
-        x = dataUS[:, LATITUDE_US]
-        y = dataUS[:, LONGITUDE_US]
-        position_US.set_data(x[:i], y[:i])
-        us.set_data(x[i], y[i])
-        us.set_markersize(12*(distance[i]/max_distance))
-        time_display.set_text(timeStyle(time_accumulative[i]))
-        if i%100 == 0 and path != None:
-            fig.savefig(path+str(j)+".png")
-            j += 1
-        return line_US, point_US, speed_US, point_speed, position_US, us, time_display
+        for (line, line_data) in zip(lines, lines_data):
+            line.set_data(line_data[0][:i], line_data[1][:i])
+        for (point, point_data) in zip(points, lines_data):
+            point.set_data(point_data[0][i], point_data[1][i])
+        for (text, text_data) in zip(texts, texts_data):
+            text.set_text(text_data[i])
+        if i%100 == 0 and not repeat:
+            buf = io.BytesIO()
+            plt.savefig(buf, format='png')
+            buf.seek(0)
+            im = Image.open(buf)
+            figList.append(im)
+        return tuple(lines) + tuple(points) + tuple(texts)
+    
     
     # call the animator.  blit=True means only re-draw the parts that have changed.
-    interval = 0
     anim = animation.FuncAnimation(fig, animate, init_func=init,
-                                   frames=len(distance), interval=interval, blit=True)
-    
-#    if path != None:
-#        anim.save(path, fps=120)#, extra_args=['-vcodec', 'libx264'])
+                                   frames=len(distance), interval=0, repeat = repeat, blit=True)
     
     plt.show()
+    if not repeat:
+        images2gif.writeGif(path, figList)#, duration=FRAME_DELAY, loops=10, dither=0)
 
-dataPlot("Results.png")
+#dataPlot()
 print("Begin")
-animationMethod("Frames")
+animationMethod("Animated.gif")
 print("Done")
