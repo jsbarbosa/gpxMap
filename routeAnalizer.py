@@ -15,25 +15,11 @@ import matplotlib.pyplot as plt
 from matplotlib import gridspec
 from matplotlib import animation
 
+from urllib.request import urlopen
+
 mpl.rcParams['grid.color'] = 'k'
 mpl.rcParams['grid.linestyle'] = ':'
 mpl.rcParams['grid.linewidth'] = 0.5
-
-class Location(object):
-    def __init__(self, name, lat, long_, convert_to_degree = True):
-        self.name = name
-        self.latitude = lat
-        self.longitude = long_
-        if convert_to_degree:
-            self.latitude = self.degreeConv(lat)
-            self.longitude = self.degreeConv(long_)
-
-    def degreeConv(self, old):
-        """
-        Returns:
-            A decimal degree from a 3D list. [0] degree, [1] minute, [2] second
-        """
-        return old[0] + old[1]/60 + old[2]/3600
 
 class Route(object):
     # Sets the column information
@@ -64,6 +50,14 @@ class Route(object):
         self.min_speed = min(self.speed)
         self.mean_speed = sum(self.speed)/self.npoints
         self.total_time = self.time_styled[-1]
+
+        # geo
+        self.min_latitude = min(self.latitude)
+        self.max_latitude = max(self.latitude)
+        self.min_longitude = min(self.longitude)
+        self.max_longitude = max(self.longitude)
+        self.center = 0.5*(self.min_latitude + self.max_latitude),\
+                    0.5*(self.min_longitude + self.max_longitude)
 
     def printImportant(self):
         print("Max altitude %.3f m"%self.max_altitude)
@@ -106,6 +100,126 @@ class Route(object):
         """
         return time.strftime('%H:%M', time.gmtime(time_interval))
 
+class Map(object):
+    """TAKEN"""
+    EARTH_RADIUS = 6378137
+    EQUATOR_CIRCUMFERENCE = 2 * np.pi * EARTH_RADIUS
+    INITIAL_RESOLUTION = EQUATOR_CIRCUMFERENCE / 256.0
+    ORIGIN_SHIFT = EQUATOR_CIRCUMFERENCE / 2.0
+    SIZE = (600, 600)
+
+    def __init__(self, route, maptype="roadmap"):
+        self.route = route
+
+        self.maptype = maptype
+        self.center = self.route.center
+        self.getZoom()
+
+        self.upper_left_latlong = None
+        self.lower_right_latlong = None
+        self.mpl_extent = None
+
+        temp = self.getLatLong()
+        self.upper_left_latlong = temp[0]
+        self.lower_right_latlong = temp[1]
+        longs = self.lower_right_latlong[0], self.upper_left_latlong[0]
+        lats = self.upper_left_latlong[1], self.lower_right_latlong[1]
+        self.mpl_extent = [min(longs),
+                        max(longs),
+                        min(lats),
+                        max(lats)]
+
+        self.static_map = self.getStaticMap()
+
+        self.mpl_origin = 'upper'
+        if self.upper_left_latlong[1] < 0:
+            self.mpl_origin = 'lower'
+
+    def LatLonToMeters(self, lat, lon):
+        "Converts given lat/lon in WGS84 Datum to XY in Spherical Mercator EPSG:900913"
+
+        mx = lon * self.ORIGIN_SHIFT / 180.0
+        my = np.log( np.tan((90 + lat) * np.pi / 360.0 )) / (np.pi / 180.0)
+
+        my = my * self.ORIGIN_SHIFT / 180.0
+        return mx, my
+
+
+    def MetersToPixels(self, mx, my, zoom):
+        "Converts EPSG:900913 to pyramid pixel coordinates in given zoom level"
+
+        res = self.Resolution(zoom)
+        px = (mx + self.ORIGIN_SHIFT) / res
+        py = (my + self.ORIGIN_SHIFT) / res
+        return px, py
+
+    def Resolution(self, zoom):
+        return self.INITIAL_RESOLUTION/(2**self.zoom)
+
+    def PixelsToMeters(self, px, py, zoom):
+        "Converts pixel coordinates in given zoom level of pyramid to EPSG:900913"
+
+        res = self.Resolution(zoom)
+        mx = px * res - self.ORIGIN_SHIFT
+        my = py * res - self.ORIGIN_SHIFT
+        return mx, my
+
+    def MetersToLatLon(self, mx, my):
+        "Converts XY point from Spherical Mercator EPSG:900913 to lat/lon in WGS84 Datum"
+
+        lon = (mx / self.ORIGIN_SHIFT) * 180.0
+        lat = (my / self.ORIGIN_SHIFT) * 180.0
+
+        lat = 180 / np.pi * (2 * np.arctan(np.exp(lat * np.pi / 180.0)) - np.pi / 2.0)
+        return lat, lon
+
+    def getLatLong(self):
+        meters = self.LatLonToMeters(self.center[0], self.center[1])
+        pixels = self.MetersToPixels(meters[0], meters[1], self.zoom)
+
+        cpx, cpy = pixels
+        upper_left = cpx + self.SIZE[0]*0.5, cpy - self.SIZE[1]*0.5
+        lower_right = cpx - self.SIZE[0]*0.5, cpy + self.SIZE[1]*0.5
+
+        corners = [upper_left, lower_right]
+        for (i, corner) in enumerate(corners):
+            meters = self.PixelsToMeters(corner[0], corner[1], self.zoom)
+            latlong = self.MetersToLatLon(meters[0], meters[1])
+            corners[i] = latlong[::-1]
+
+        return corners
+
+    def getUrlStaticMap(self, center):
+        url = "http://maps.google.com/maps/api/staticmap?"
+        if center != None:
+            url += "center=%s&"%center
+        url += "size=%dx%d&"%(self.SIZE[0], self.SIZE[1])
+        url += "zoom=%d&"%self.zoom
+        url += "maptype=%s&"%self.maptype
+        url += "sensor=false"
+        return url
+
+    def getStaticMap(self):
+        center = "%f,%f"%(self.center[0], self.center[1])
+        url = self.getUrlStaticMap(center)
+        f = urlopen(url)
+        a = plt.imread(f)
+        return a
+
+
+    def getZoom(self):
+        lat_range = self.route.max_latitude - self.route.min_latitude
+        long_range = self.route.max_longitude - self.route.min_longitude
+        for i in range(14, 0, -1):
+            self.zoom = i
+            upper_left, lower_right = self.getLatLong()
+            longs = lower_right[0], upper_left[0]
+            lats = upper_left[1], lower_right[1]
+            if long_range <= max(longs) - min(longs):
+                if lat_range <= max(lats) - min(lats):
+                    break
+
+
 def dataWrapper(path):
     """ Gets data from gpx file .
     Returns:
@@ -135,9 +249,9 @@ def dataWrapper(path):
                     i += 1
     return data
 
-def dataPlot(route, locations = None, path = None):
-    fig = plt.figure(figsize=(12, 4))
-    gs = gridspec.GridSpec(2, 3)
+def dataPlot(route, map_ = None, path = None):
+    fig = plt.figure(figsize=(10, 4))
+    gs = gridspec.GridSpec(2, 2)
 
     ax1 = fig.add_subplot(gs[:1,0])
     ax1.plot(route.distance, route.altitude)
@@ -150,35 +264,29 @@ def dataPlot(route, locations = None, path = None):
     ax2.set_ylabel("Speed (km/h)")
     ax2.grid()
 
-    ax3 = fig.add_subplot(gs[:, 1:])
-    ax3.plot(route.latitude, route.longitude)
+    ax3 = fig.add_subplot(gs[:, 1])
+    if map_ != None:
+        ax3.imshow(map_.static_map, extent=map_.mpl_extent, origin=map_.mpl_origin)
+    ax3.plot(route.longitude, route.latitude)
 
-    if locations != None:
-        for loc in locations:
-            ax3.text(loc.latitude, loc.longitude, loc.name)
-
-    ax3.set_xlabel("Latitude (decimal degrees)")
-    ax3.set_ylabel("Longitude (decimal degrees)")
-    ax3.set_ylim(ax3.get_ylim()[::-1])
+    ax3.set_xlabel("Longitude (decimal degrees)")
+    ax3.set_ylabel("Latitude (decimal degrees)")
     ax3.grid()
 
-    plt.tight_layout()      # Improves layout
+    # plt.tight_layout()      # Improves layout
     if path != None:
-        try:
-            plt.savefig(path)
-            plt.close()
-        except:
-            print("Invalid path or extention")
+        plt.savefig(path)
+        plt.close()
     else:
         plt.show()
 
-def animationMethod(route, locations = None, jump = 1, path = None):
+def animationMethod(route, map_ = None, jump = 1, path = None, dpi = 100):
     """
     Animation
     """
     # First set up the figure, the axis, and the plot element we want to animate
-    fig = plt.figure(figsize=(12, 4))
-    gs = gridspec.GridSpec(2, 3)
+    fig = plt.figure(figsize=(10, 4))
+    gs = gridspec.GridSpec(2, 2)
     lines = []
     points = []
     texts = []
@@ -216,33 +324,35 @@ def animationMethod(route, locations = None, jump = 1, path = None):
     points.append(point)
     texts.append(text)
 
-    location_xrange = max(route.latitude) - min(route.latitude)
-    location_xloc = max(route.latitude) - (2/6)*location_xrange
-    location_yrange = max(route.longitude) - min(route.longitude)
-    location_yloc = min(route.longitude) + (1/8)*location_yrange
     ax3 = fig.add_subplot(gs[:,1:])
+
+    if map_ != None:
+        ax3.imshow(map_.static_map, extent=map_.mpl_extent, origin=map_.mpl_origin)
+
     line, = ax3.plot([], [])
     point, = ax3.plot([], [], "o", color="red")
-    text = ax3.text(location_xloc + location_xrange*0.1, location_yloc + 0.05*location_yrange, "")
-    ax3.set_ylim(max(route.longitude), min(route.longitude))
-    ax3.set_xlabel("Latitude (decimal degrees)")
-    ax3.set_ylabel("Longitude (decimal degrees)")
-    ax3.plot(route.latitude, route.longitude, color="black", alpha = 0.3)
-    ax3.text(location_xloc, location_yloc, "Elapsed time")
 
-    if locations != None:
-        for loc in locations:
-            ax3.text(loc.latitude, loc.longitude, loc.name)
+    xlim = ax3.get_xlim()
+    ylim = ax3.get_ylim()
+    box = dict(boxstyle='round', facecolor='white', alpha=0.7)
+    text = ax3.text(0.5*(xlim[0]+xlim[1]), ylim[1] - 0.1*(ylim[1]-ylim[0]), "", bbox=box)
+    ax3.set_xlabel("Longitude (decimal degrees)")
+    ax3.set_ylabel("Latitude (decimal degrees)")
+    alpha = 0.3
+    if map_.maptype == "satellite":
+        alpha = 0.8
+    ax3.plot(route.longitude, route.latitude, lw=0.5, color="black", alpha = alpha)
 
     ax3.grid()
     lines.append(line)
     points.append(point)
     texts.append(text)
+    plt.subplots_adjust(top=1.1)
     plt.tight_layout()
 
     lines_data = [[route.distance, route.altitude],
                 [route.distance, route.speed],
-                [route.latitude, route.longitude]]
+                [route.longitude, route.latitude]]
 
     speedText = ["%.1f"%speed for speed in route.speed]
     texts_data = [route.altitude, speedText, route.time_styled]
@@ -265,7 +375,7 @@ def animationMethod(route, locations = None, jump = 1, path = None):
         for (point, point_data) in zip(points, lines_data):
             point.set_data(point_data[0][i], point_data[1][i])
         for (text, text_data) in zip(texts, texts_data):
-            text.set_text(text_data[i])
+                text.set_text(text_data[i])
 
         return tuple(lines) + tuple(points) + tuple(texts)
 
@@ -275,22 +385,16 @@ def animationMethod(route, locations = None, jump = 1, path = None):
                                    frames=route.npoints//jump, interval=0, blit=True)
 
     if path != None:
-        anim.save(path, writer="imagemagick", fps=24)
+        anim.save(path, writer="imagemagick", fps=24, dpi=dpi)
     else:
         plt.show()
 
-Bogota = Location("Bogota", [4,42,53], [-74, -4, -33])
-Patios = Location("Patios", [4, 40, 20], [-74, -0, -38])
-LaCalera = Location("La Calera", [4, 45, 11], [-73, -56, -20])
-Sopo = Location("Sopo", [4, 54, 29], [-73, -57, -30])
-
 if __name__ == "__main__":
-    locations = [Bogota, Patios, LaCalera, Sopo]
-
-    route = Route(dataWrapper("GPS-data/Loctome-Teusaca_2017-06-18.gpx"))
     route = Route(dataWrapper("GPS-data/Loctome-Sopo.gpx"))
+    myMap = Map(route, maptype="satellite")
+
     non_stop = route.ceroSpeed()
     non_stop.printImportant()
+    # dataPlot(non_stop, myMap)
 
-    # dataPlot(non_stop, locations)
-    animationMethod(non_stop, locations, jump=non_stop.npoints//120, path="Sopo.gif")
+    animationMethod(non_stop, myMap, jump=non_stop.npoints//120)#, path="Sopo.gif")
