@@ -19,7 +19,7 @@ from urllib.request import urlopen
 
 mpl.rcParams['grid.color'] = 'k'
 mpl.rcParams['grid.linestyle'] = ':'
-mpl.rcParams['grid.linewidth'] = 0.5
+mpl.rcParams['grid.linewidth'] = 0.25
 
 class Route(object):
     # Sets the column information
@@ -43,12 +43,11 @@ class Route(object):
         self.elapsed_time = self.elapsedTime()
         self.time_styled = [self.timeStyle(time) for time in self.elapsed_time]
 
-        self.max_altitude = max(self.altitude)
-        self.min_altitude = min(self.altitude)
         self.max_distance = self.distance[-1]
-        self.max_speed = max(self.speed)
-        self.min_speed = min(self.speed)
-        self.mean_speed = sum(self.speed)/self.npoints
+
+        self.setSpeed(self.speed)
+        self.setAltitude(self.altitude)
+
         self.total_time = self.time_styled[-1]
 
         # geo
@@ -66,6 +65,17 @@ class Route(object):
         print("Max speed %.3f km/h"%self.max_speed)
         print("Mean speed %.3f km/h"%self.mean_speed)
         print("Duration", self.total_time)
+
+    def setSpeed(self, speed):
+        self.speed = np.around(speed, 1)
+        self.max_speed = max(self.speed)
+        self.min_speed = min(self.speed)
+        self.mean_speed = self.speed.mean()
+
+    def setAltitude(self, altitude):
+        self.altitude = np.around(altitude, 1)
+        self.max_altitude = max(self.altitude)
+        self.min_altitude = min(self.altitude)
 
     def ceroSpeed(self):
         """ Gets the output data from dataWrapper and deletes zero speed points.
@@ -250,7 +260,7 @@ def dataWrapper(path):
     return data
 
 def dataPlot(route, map_ = None, path = None):
-    fig = plt.figure(figsize=(10, 4))
+    fig = plt.figure(figsize=(8, 4.5))
     gs = gridspec.GridSpec(2, 2)
 
     ax1 = fig.add_subplot(gs[:1,0])
@@ -285,7 +295,7 @@ def animationMethod(route, map_ = None, jump = 1, path = None, dpi = 100):
     Animation
     """
     # First set up the figure, the axis, and the plot element we want to animate
-    fig = plt.figure(figsize=(10, 4))
+    fig = plt.figure(figsize=(8, 4.5))
     gs = gridspec.GridSpec(2, 2)
     lines = []
     points = []
@@ -385,9 +395,24 @@ def animationMethod(route, map_ = None, jump = 1, path = None, dpi = 100):
                                    frames=route.npoints//jump, interval=0, blit=True)
 
     if path != None:
-        anim.save(path, writer="imagemagick", fps=24, dpi=dpi)
+        if path[:-3] == ".gif":
+            anim.save(path, writer="imagemagick", fps=24, dpi=dpi)
+        else:
+            anim.save(path, fps=24, dpi=dpi)
     else:
         plt.show()
+
+def fourierFilter(array, from_ = 10, to = 100):
+    transform = np.fft.rfft(array)
+
+    n = transform.shape[0]
+    factor = n/100
+    from_ = int(factor*from_)
+    to = int(factor*to)
+
+    transform[from_ : to] = 0
+
+    return np.fft.irfft(transform)
 
 if __name__ == "__main__":
     route = Route(dataWrapper("GPS-data/Loctome-Sopo.gpx"))
