@@ -118,7 +118,10 @@ class Map(object):
     ORIGIN_SHIFT = EQUATOR_CIRCUMFERENCE / 2.0
     SIZE = (600, 600)
 
-    def __init__(self, route, maptype="roadmap"):
+    def __init__(self, route, maptype="hybrid"):
+        """
+            maptypes: roadmap, satellite, terrain, hybrid
+        """
         self.route = route
 
         self.maptype = maptype
@@ -220,7 +223,7 @@ class Map(object):
     def getZoom(self):
         lat_range = self.route.max_latitude - self.route.min_latitude
         long_range = self.route.max_longitude - self.route.min_longitude
-        for i in range(14, 0, -1):
+        for i in range(20, 0, -1):
             self.zoom = i
             upper_left, lower_right = self.getLatLong()
             longs = lower_right[0], upper_left[0]
@@ -259,7 +262,7 @@ def dataWrapper(path):
                     i += 1
     return data
 
-def dataPlot(route, map_ = None, path = None):
+def dataPlot(route, map_ = None, path = None, dpi = 240):
     fig = plt.figure(figsize=(8, 4.5))
     gs = gridspec.GridSpec(2, 2)
 
@@ -272,6 +275,7 @@ def dataPlot(route, map_ = None, path = None):
     ax2.plot(route.distance, route.speed)
     ax2.text(60, 45, "%.2f km/h"%route.mean_speed)
     ax2.set_ylabel("Speed (km/h)")
+    ax2.set_xlabel("Distance (km)")
     ax2.grid()
 
     ax3 = fig.add_subplot(gs[:, 1])
@@ -283,9 +287,9 @@ def dataPlot(route, map_ = None, path = None):
     ax3.set_ylabel("Latitude (decimal degrees)")
     ax3.grid()
 
-    # plt.tight_layout()      # Improves layout
+    plt.tight_layout()      # Improves layout
     if path != None:
-        plt.savefig(path)
+        plt.savefig(path, dpi=dpi)
         plt.close()
     else:
         plt.show()
@@ -339,8 +343,7 @@ def animationMethod(route, map_ = None, jump = 1, path = None, dpi = 100):
     if map_ != None:
         ax3.imshow(map_.static_map, extent=map_.mpl_extent, origin=map_.mpl_origin)
 
-    line, = ax3.plot([], [])
-    point, = ax3.plot([], [], "o", color="red")
+
 
     xlim = ax3.get_xlim()
     ylim = ax3.get_ylim()
@@ -349,9 +352,11 @@ def animationMethod(route, map_ = None, jump = 1, path = None, dpi = 100):
     ax3.set_xlabel("Longitude (decimal degrees)")
     ax3.set_ylabel("Latitude (decimal degrees)")
     alpha = 0.3
-    if map_.maptype == "satellite":
-        alpha = 0.8
-    ax3.plot(route.longitude, route.latitude, lw=0.5, color="black", alpha = alpha)
+    if map_.maptype == "satellite" or map_.maptype == "hybrid":
+        alpha = 1.0
+    ax3.plot(route.longitude, route.latitude, lw=1.0, color="white", alpha = alpha)
+    line, = ax3.plot([], [])
+    point, = ax3.plot([], [], "o", color="red")
 
     ax3.grid()
     lines.append(line)
