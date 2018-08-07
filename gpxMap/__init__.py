@@ -26,7 +26,7 @@ mpl.rcParams['grid.color'] = 'k'
 mpl.rcParams['grid.linestyle'] = ':'
 mpl.rcParams['grid.linewidth'] = 0.25
 
-__version__ = "0.0.0"
+__version__ = "0.0.1"
 
 class Route(object):
     # Sets the column information
