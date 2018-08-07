@@ -10,7 +10,7 @@ setup(
     version = gpxMap.__version__,
     author = "Juan Barbosa",
     author_email = "js.barbosa10@uniandes.edu.co",
-    description = ('Animate GPS data. Use and gpx file to display your GPS data.'),
+    description = ('Animate GPS data. Use a gpx file to display your GPS data.'),
     license = "GPL",
     keywords = "example documentation tutorial",
     url = "https://github.com/jsbarbosa/gpxMap",

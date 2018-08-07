@@ -1,5 +1,5 @@
 # gpxMap
-Animate GPS data. Use and gpx file to display your GPS data.
+Animate GPS data. Use a gpx file to display your GPS data.
 
 ## install
 ```
