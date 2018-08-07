@@ -20,12 +20,13 @@ graph.animate(jump = jump)
 ```
 
 ## dependencies
--matplotlib
--gpxpy
--pillow
+- matplotlib
+- gpxpy
+- pillow
 
-# Gifs
-
+# Results
+## Sopo
 ![Results](https://github.com/jsbarbosa/gpxMap/blob/master/Sopo.gif)
 
+## Teusaca
 ![Results](https://github.com/jsbarbosa/gpxMap/blob/master/Teusaca.gif)
